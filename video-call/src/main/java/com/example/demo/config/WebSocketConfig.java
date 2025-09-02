@@ -8,6 +8,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 
 @Configuration
 @EnableWebSocket
+//add Config class
 public class WebSocketConfig implements WebSocketConfigurer {
 
 	private final SignalingHandler signalingHandler;
