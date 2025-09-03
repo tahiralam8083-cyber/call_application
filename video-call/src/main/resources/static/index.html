@@ -1,203 +1,188 @@
 <!doctype html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>Video Call</title>
-	<style>
-		body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
-		.controls { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
-		video { width: 47%; background: #000; border-radius: 8px; }
-		.videos { display: flex; gap: 12px; flex-wrap: wrap; }
-		.status { margin-top: 10px; color: red; font-weight: bold; }
-		input { padding: 6px 10px; }
-		button { padding: 6px 12px; }
-	</style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WebRTC Video Call</title>
+<style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #1e1e2f; color: #fff; }
+    h2 { text-align: center; color: #00ffd5; text-shadow: 0 0 10px #00ffd5; }
+    .controls { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    input { padding: 8px 12px; border-radius: 6px; border: none; font-size: 14px; }
+    button { padding: 8px 14px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; transition: transform 0.2s; }
+    button:hover { transform: scale(1.1); }
+    .videos { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    video { width: 45%; background: #000; border-radius: 12px; box-shadow: 0 0 15px #00ffd5; animation: fadeIn 1s ease-in; }
+    .status { margin-top: 15px; text-align: center; font-weight: bold; color: #ff4b5c; text-shadow: 0 0 5px #ff4b5c; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+</style>
 </head>
 <body>
-	<h2>WebRTC Video Call</h2>
-	<div class="controls">
-		<input id="roomId" placeholder="Room ID (e.g. demo)" />
-		<button id="joinBtn">Join</button>
-		<button id="leaveBtn" disabled>Leave</button>
-		<button id="screenShareBtn" disabled>Share Screen</button>
-		<button id="stopScreenBtn" disabled>Stop Screen</button>
-	</div>
-	<div class="videos">
-		<video id="localVideo" autoplay playsinline muted></video>
-		<video id="remoteVideo" autoplay playsinline></video>
-	</div>
-	<div class="status" id="status"></div>
 
-	<script>
-		const statusEl = document.getElementById('status');
-		const joinBtn = document.getElementById('joinBtn');
-		const leaveBtn = document.getElementById('leaveBtn');
-		const screenShareBtn = document.getElementById('screenShareBtn');
-		const stopScreenBtn = document.getElementById('stopScreenBtn');
-		const roomInput = document.getElementById('roomId');
-		const localVideo = document.getElementById('localVideo');
-		const remoteVideo = document.getElementById('remoteVideo');
+<h2>WebRTC Video Call</h2>
 
-		let ws, pc, roomId, localStream, screenStream, isScreenSharing = false;
+<div class="controls">
+    <input id="roomId" placeholder="Room ID" value="demo"/>
+    <button id="joinBtn">Join</button>
+    <button id="leaveBtn" disabled>Leave</button>
+    <button id="screenShareBtn" disabled>Share Screen</button>
+    <button id="stopScreenBtn" disabled>Stop Screen</button>
+    <button id="camToggleBtn" disabled>Camera Off</button>
+    <button id="micToggleBtn" disabled>Mic Off</button>
+</div>
 
-		// Display errors directly on page
-		function log(msg){ statusEl.textContent = msg; }
+<div class="videos">
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+</div>
 
-		// Catch unexpected JS errors
-		window.onerror = function(message, source, lineno, colno, error) {
-			log('Error: ' + message);
-		};
+<div class="status" id="status"></div>
 
-		// ------------------ WebRTC Peer ------------------
-		function createPeer() {
-			try {
-				pc = new RTCPeerConnection({ 
-					iceServers: [
-						{ urls: 'stun:stun.l.google.com:19302' },
-						{ 
-							urls: 'turn:openrelay.metered.ca:80',
-							username: 'openrelayproject',
-							credential: 'openrelayproject'
-						},
-						{ 
-							urls: 'turn:openrelay.metered.ca:443',
-							username: 'openrelayproject',
-							credential: 'openrelayproject'
-						}
-					] 
-				});
-				pc.onicecandidate = (e) => {
-					if (e.candidate) send({ type: 'ice-candidate', roomId, data: e.candidate });
-				};
-				pc.ontrack = (e) => { remoteVideo.srcObject = e.streams[0]; };
-				pc.oniceconnectionstatechange = () => {
-					log('ICE Connection State: ' + pc.iceConnectionState);
-				};
-				if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-			} catch(err) { log('Peer creation error: ' + err.message); }
-		}
+<script>
+const statusEl = document.getElementById('status');
+const joinBtn = document.getElementById('joinBtn');
+const leaveBtn = document.getElementById('leaveBtn');
+const screenShareBtn = document.getElementById('screenShareBtn');
+const stopScreenBtn = document.getElementById('stopScreenBtn');
+const camToggleBtn = document.getElementById('camToggleBtn');
+const micToggleBtn = document.getElementById('micToggleBtn');
+const roomInput = document.getElementById('roomId');
+const localVideo = document.getElementById('localVideo');
+const remoteVideo = document.getElementById('remoteVideo');
 
-		async function makeOffer() {
-			try {
-				const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:true });
-				await pc.setLocalDescription(offer);
-				send({ type:'offer', roomId, data: offer });
-			} catch(err){ log('Offer error: ' + err.message); }
-		}
+let ws, pc, roomId, localStream, screenStream, isScreenSharing=false;
+let camEnabled=true, micEnabled=true;
 
-		async function ensurePc(){ if(!pc) createPeer(); }
+// Display errors
+function log(msg){ statusEl.textContent = msg; }
+window.onerror = (msg)=>log('Error: ' + msg);
 
-		// ------------------ WebSocket ------------------
-		function connectWs() {
-			try {
-				const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-				ws = new WebSocket(`${protocol}://${location.host}/ws`);
+// ------------------ WebRTC Peer ------------------
+function createPeer() {
+    pc = new RTCPeerConnection({ iceServers: [{ urls:'stun:stun.l.google.com:19302' }] });
+    pc.onicecandidate = e => e.candidate && send({ type:'ice-candidate', roomId, data:e.candidate });
+    pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+    pc.oniceconnectionstatechange = ()=> log('ICE State: '+pc.iceConnectionState);
+    if(localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+}
 
-				ws.onopen = () => { log('Connected. Joining room...'); send({ type:'join', roomId }); };
-				ws.onerror = (err) => log('WebSocket error: ' + err.message);
-				ws.onclose = () => log('WebSocket disconnected');
+async function makeOffer() {
+    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:true });
+    await pc.setLocalDescription(offer);
+    send({ type:'offer', roomId, data:offer });
+}
 
-				ws.onmessage = async (ev) => {
-					try {
-						const msg = JSON.parse(ev.data);
-						switch(msg.type){
-							case 'peer-joined':
-								await ensurePc();
-								await makeOffer();
-								break;
-							case 'offer':
-								await ensurePc();
-								await pc.setRemoteDescription(msg.data || msg);
-								const answer = await pc.createAnswer();
-								await pc.setLocalDescription(answer);
-								send({ type:'answer', roomId, data: answer });
-								break;
-							case 'answer':
-								await pc.setRemoteDescription(msg.data || msg);
-								break;
-							case 'ice-candidate':
-								if(msg.data) try { await pc.addIceCandidate(msg.data); } catch(err){ log('ICE failed: ' + err.message); }
-								break;
-							default:
-								log('Unknown WS message: ' + JSON.stringify(msg));
-						}
-					} catch(err){ log('Message handler error: ' + err.message); }
-				};
-			} catch(err){ log('WebSocket connect failed: ' + err.message); }
-		}
+async function ensurePc(){ if(!pc) createPeer(); }
 
-		function send(obj){ if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
+// ------------------ WebSocket ------------------
+function connectWs() {
+    ws = new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
+    ws.onopen = () => { log('Connected. Joining room...'); send({ type:'join', roomId }); };
+    ws.onmessage = async e => {
+        const msg = JSON.parse(e.data);
+        switch(msg.type){
+            case 'peer-joined': await ensurePc(); await makeOffer(); break;
+            case 'offer':
+                await ensurePc();
+                await pc.setRemoteDescription(msg.data || msg);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                send({ type:'answer', roomId, data:answer });
+                break;
+            case 'answer': await pc.setRemoteDescription(msg.data || msg); break;
+            case 'ice-candidate': if(msg.data) await pc.addIceCandidate(msg.data); break;
+        }
+    };
+}
 
-		// ------------------ Join / Leave ------------------
-		async function join() {
-			try {
-				roomId = roomInput.value.trim() || 'demo';
-				log('Requesting media...');
-				localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-				localVideo.srcObject = localStream;
-				createPeer();
-				connectWs();
-				joinBtn.disabled = true;
-				leaveBtn.disabled = false;
-				screenShareBtn.disabled = false;
-			} catch(err){ log('Join failed: ' + err.message); }
-		}
+function send(obj){ if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
 
-		function leave() {
-			try {
-				if(ws) { ws.close(); ws=null; }
-				if(pc) { pc.close(); pc=null; }
-				if(localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
-				if(screenStream) { screenStream.getTracks().forEach(t=>t.stop()); screenStream=null; }
-				localVideo.srcObject = null;
-				remoteVideo.srcObject = null;
-				joinBtn.disabled = false;
-				leaveBtn.disabled = true;
-				screenShareBtn.disabled = true;
-				stopScreenBtn.disabled = true;
-				isScreenSharing=false;
-				log('Left room');
-			} catch(err){ log('Leave error: ' + err.message); }
-		}
+// ------------------ Join / Leave ------------------
+async function join() {
+    try {
+        roomId = roomInput.value.trim() || 'demo';
+        localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
+        localVideo.srcObject = localStream;
+        createPeer();
+        connectWs();
+        joinBtn.disabled=true;
+        leaveBtn.disabled=false;
+        screenShareBtn.disabled=false;
+        camToggleBtn.disabled=false;
+        micToggleBtn.disabled=false;
+    } catch(err){ log('Join failed: '+err.message); }
+}
 
-		// ------------------ Screen Sharing ------------------
-		async function startScreenShare() {
-			try {
-				screenStream = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:false });
-				const videoTrack = screenStream.getVideoTracks()[0];
-				const sender = pc.getSenders().find(s => s.track && s.track.kind==='video');
-				if(sender) sender.replaceTrack(videoTrack);
-				localVideo.srcObject = screenStream;
-				isScreenSharing=true;
-				screenShareBtn.disabled=true;
-				stopScreenBtn.disabled=false;
-				videoTrack.onended=stopScreenShare;
-				log('Screen sharing started');
-			} catch(err){ log('Screen share error: ' + err.message); }
-		}
+function leave() {
+    ws?.close(); ws=null;
+    pc?.close(); pc=null;
+    localStream?.getTracks().forEach(t=>t.stop()); localStream=null;
+    screenStream?.getTracks().forEach(t=>t.stop()); screenStream=null;
+    localVideo.srcObject=null;
+    remoteVideo.srcObject=null;
+    joinBtn.disabled=false;
+    leaveBtn.disabled=true;
+    screenShareBtn.disabled=true;
+    stopScreenBtn.disabled=true;
+    camToggleBtn.disabled=true;
+    micToggleBtn.disabled=true;
+    camEnabled=true; micEnabled=true;
+    camToggleBtn.textContent="Camera Off";
+    micToggleBtn.textContent="Mic Off";
+    isScreenSharing=false;
+    log('Left room');
+}
 
-		function stopScreenShare() {
-			try {
-				if(screenStream){ screenStream.getTracks().forEach(t=>t.stop()); screenStream=null; }
-				if(localStream){
-					localVideo.srcObject=localStream;
-					const videoTrack = localStream.getVideoTracks()[0];
-					const sender = pc.getSenders().find(s=>s.track && s.track.kind==='video');
-					if(sender) sender.replaceTrack(videoTrack);
-				}
-				isScreenSharing=false;
-				screenShareBtn.disabled=false;
-				stopScreenBtn.disabled=true;
-				log('Screen sharing stopped');
-			} catch(err){ log('Stop screen share error: ' + err.message); }
-		}
+// ------------------ Screen Sharing ------------------
+async function startScreenShare() {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video:true });
+    const videoTrack = screenStream.getVideoTracks()[0];
+    const sender = pc.getSenders().find(s=>s.track && s.track.kind==='video');
+    if(sender) sender.replaceTrack(videoTrack);
+    localVideo.srcObject=screenStream;
+    isScreenSharing=true;
+    screenShareBtn.disabled=true;
+    stopScreenBtn.disabled=false;
+    videoTrack.onended=stopScreenShare;
+    log('Screen sharing started');
+}
 
-		// ------------------ Event Listeners ------------------
-		joinBtn.onclick = join;
-		leaveBtn.onclick = leave;
-		screenShareBtn.onclick = startScreenShare;
-		stopScreenBtn.onclick = stopScreenShare;
-	</script>
+function stopScreenShare() {
+    if(screenStream){ screenStream.getTracks().forEach(t=>t.stop()); screenStream=null; }
+    if(localStream){
+        localVideo.srcObject=localStream;
+        const videoTrack=localStream.getVideoTracks()[0];
+        const sender=pc.getSenders().find(s=>s.track && s.track.kind==='video');
+        if(sender) sender.replaceTrack(videoTrack);
+    }
+    isScreenSharing=false;
+    screenShareBtn.disabled=false;
+    stopScreenBtn.disabled=true;
+    log('Screen sharing stopped');
+}
+
+// ------------------ Camera / Mic Toggle ------------------
+camToggleBtn.onclick = () => {
+    if(localStream){
+        camEnabled = !camEnabled;
+        localStream.getVideoTracks().forEach(t=>t.enabled=camEnabled);
+        camToggleBtn.textContent = camEnabled ? "Camera Off":"Camera On";
+    }
+};
+
+micToggleBtn.onclick = () => {
+    if(localStream){
+        micEnabled = !micEnabled;
+        localStream.getAudioTracks().forEach(t=>t.enabled=micEnabled);
+        micToggleBtn.textContent = micEnabled ? "Mic Off":"Mic On";
+    }
+};
+
+// ------------------ Event Listeners ------------------
+joinBtn.onclick = join;
+leaveBtn.onclick = leave;
+screenShareBtn.onclick = startScreenShare;
+stopScreenBtn.onclick = stopScreenShare;
+</script>
 </body>
 </html>
