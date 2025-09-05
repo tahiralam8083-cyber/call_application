@@ -15,6 +15,130 @@
     video { width: 45%; background: #000; border-radius: 12px; box-shadow: 0 0 15px #00ffd5; animation: fadeIn 1s ease-in; }
     .status { margin-top: 15px; text-align: center; font-weight: bold; color: #ff4b5c; text-shadow: 0 0 5px #ff4b5c; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    
+    /* Chat Panel Styles */
+    .chat-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 300px;
+        height: 400px;
+        background: rgba(0, 0, 0, 0.8);
+        border-radius: 12px;
+        border: 2px solid #00ffd5;
+        box-shadow: 0 0 20px #00ffd5;
+        display: flex;
+        flex-direction: column;
+        z-index: 1000;
+        animation: fadeInRight 0.5s ease;
+    }
+    
+    @keyframes fadeInRight {
+        from { opacity: 0; transform: translateX(50px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    
+    .chat-header {
+        background: linear-gradient(90deg, #00ffd5, #00ff99);
+        color: #000;
+        padding: 10px;
+        border-radius: 10px 10px 0 0;
+        font-weight: bold;
+        text-align: center;
+        cursor: pointer;
+    }
+    
+    .chat-messages {
+        flex: 1;
+        padding: 10px;
+        overflow-y: auto;
+        color: #fff;
+        font-size: 14px;
+    }
+    
+    .chat-message {
+        margin-bottom: 8px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: rgba(0, 255, 213, 0.1);
+        border-left: 3px solid #00ffd5;
+        animation: slideInMessage 0.3s ease;
+    }
+    
+    @keyframes slideInMessage {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .chat-message.own {
+        background: rgba(0, 255, 153, 0.1);
+        border-left-color: #00ff99;
+        text-align: right;
+    }
+    
+    .chat-input-container {
+        display: flex;
+        padding: 10px;
+        gap: 5px;
+    }
+    
+    .chat-input {
+        flex: 1;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #00ffd5;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+        font-size: 14px;
+    }
+    
+    .chat-input:focus {
+        outline: none;
+        box-shadow: 0 0 10px #00ffd5;
+    }
+    
+    .chat-send-btn {
+        padding: 8px 12px;
+        background: #00ffd5;
+        color: #000;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: all 0.2s;
+    }
+    
+    .chat-send-btn:hover {
+        background: #00ff99;
+        transform: scale(1.05);
+    }
+    
+    .chat-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        background: #00ffd5;
+        color: #000;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 20px;
+        font-weight: bold;
+        z-index: 1001;
+        box-shadow: 0 0 15px #00ffd5;
+        transition: all 0.3s;
+    }
+    
+    .chat-toggle:hover {
+        background: #00ff99;
+        transform: scale(1.1);
+    }
+    
+    .chat-hidden {
+        display: none;
+    }
 </style>
 </head>
 <body>
@@ -38,6 +162,17 @@
 
 <div class="status" id="status"></div>
 
+<!-- Chat Panel -->
+<button class="chat-toggle" id="chatToggle">💬</button>
+<div class="chat-container chat-hidden" id="chatContainer">
+    <div class="chat-header" id="chatHeader">Chat</div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-container">
+        <input type="text" class="chat-input" id="chatInput" placeholder="Type a message..." maxlength="200">
+        <button class="chat-send-btn" id="chatSendBtn">Send</button>
+    </div>
+</div>
+
 <script>
 const statusEl = document.getElementById('status');
 const joinBtn = document.getElementById('joinBtn');
@@ -49,6 +184,14 @@ const micToggleBtn = document.getElementById('micToggleBtn');
 const roomInput = document.getElementById('roomId');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
+
+// Chat elements
+const chatToggle = document.getElementById('chatToggle');
+const chatContainer = document.getElementById('chatContainer');
+const chatHeader = document.getElementById('chatHeader');
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
 
 let ws, pc, roomId, localStream, screenStream, isScreenSharing=false;
 let camEnabled=true, micEnabled=true;
@@ -97,6 +240,11 @@ function connectWs() {
                 break;
             case 'answer': await pc.setRemoteDescription(msg.data || msg); break;
             case 'ice-candidate': if(msg.data) await pc.addIceCandidate(msg.data); break;
+            case 'chat':
+                if(msg.data && msg.data.message){
+                    addChatMessage(msg.data.message, msg.data.sender || 'Other', false);
+                }
+                break;
         }
     };
 }
@@ -184,11 +332,63 @@ micToggleBtn.onclick = () => {
     }
 };
 
+// ------------------ Chat Functions ------------------
+function addChatMessage(message, sender, isOwn) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chat-message ${isOwn ? 'own' : ''}`;
+    
+    const time = new Date().toLocaleTimeString();
+    messageDiv.innerHTML = `
+        <div style="font-size: 12px; opacity: 0.7; margin-bottom: 2px;">${sender} - ${time}</div>
+        <div>${message}</div>
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function sendChatMessage() {
+    const message = chatInput.value.trim();
+    if (!message || !ws || ws.readyState !== 1) return;
+    
+    const sender = 'You';
+    addChatMessage(message, sender, true);
+    
+    send({ 
+        type: 'chat', 
+        roomId, 
+        data: { 
+            message: message, 
+            sender: sender,
+            timestamp: Date.now()
+        } 
+    });
+    
+    chatInput.value = '';
+}
+
+function toggleChat() {
+    chatContainer.classList.toggle('chat-hidden');
+    if (!chatContainer.classList.contains('chat-hidden')) {
+        chatInput.focus();
+    }
+}
+
 // ------------------ Event Listeners ------------------
 joinBtn.onclick = join;
 leaveBtn.onclick = leave;
 screenShareBtn.onclick = startScreenShare;
 stopScreenBtn.onclick = stopScreenShare;
+
+// Chat event listeners
+chatToggle.onclick = toggleChat;
+chatHeader.onclick = toggleChat;
+chatSendBtn.onclick = sendChatMessage;
+chatInput.onkeypress = (e) => {
+    if (e.key === 'Enter') {
+        sendChatMessage();
+    }
+};
 
 </script>
 </body>

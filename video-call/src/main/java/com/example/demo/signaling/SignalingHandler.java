@@ -58,6 +58,11 @@ public class SignalingHandler extends TextWebSocketHandler {
 	                log.info("Received ICE candidate from session {} in room {}", session.getId(), roomId);
 	                broadcast(roomId, session, message.getPayload());
 	            }
+	            case "chat" -> {
+	                log.info("Received CHAT message from session {} in room {}", session.getId(), roomId);
+	                // Relay chat messages to all peers in the same room (excluding sender)
+	                broadcast(roomId, session, message.getPayload());
+	            }
 	            default -> log.warn("Unknown message type '{}' from session {}", type, session.getId());
 	        }
 	    }
